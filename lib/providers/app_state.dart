@@ -29,11 +29,9 @@ class AppState extends ChangeNotifier {
     ProotService.output.listen((data) {
       final text = data.toString();
       _pendingOutput += text;
-      // Batch UI updates every 100ms
       _batchTimer ??= Timer(const Duration(milliseconds: 100), _flushTerminalBuffer);
     });
 
-    // Direct Terminal typing goes to PTY
     terminal.onOutput = (data) {
       ProotService.write(data);
     };
@@ -45,7 +43,7 @@ class AppState extends ChangeNotifier {
   void _flushTerminalBuffer() {
     if (_pendingOutput.isEmpty) return;
 
-    terminal.buffer.writeString(_pendingOutput);
+    terminal.write(_pendingOutput);
     terminalBuffer += _pendingOutput;
 
     if (terminalBuffer.length > 8000) {

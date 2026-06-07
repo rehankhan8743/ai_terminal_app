@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
 
 class AIService {
@@ -35,20 +36,26 @@ class AIService {
       );
 
       final stream = (response.data as ResponseBody).stream;
-      final lines = stream.transform(utf8.decoder).transform(const LineSplitter());
+      String buffer = '';
 
-      await for (final line in lines) {
-        if (line.startsWith('data: ')) {
-          final data = line.substring(6).trim();
-          if (data == '[DONE]') break;
+      await for (final chunk in stream) {
+        buffer += utf8.decode(chunk, allowMalformed: true);
+        final lines = buffer.split('\n');
+        buffer = lines.removeLast();
 
-          try {
-            final json = jsonDecode(data);
-            final content = json['choices']?[0]?['delta']?['content'] ?? '';
-            if (content.toString().isNotEmpty) {
-              yield content.toString();
-            }
-          } catch (_) {}
+        for (final line in lines) {
+          if (line.startsWith('data: ')) {
+            final data = line.substring(6).trim();
+            if (data == '[DONE]') break;
+
+            try {
+              final json = jsonDecode(data);
+              final content = json['choices']?[0]?['delta']?['content'] ?? '';
+              if (content.toString().isNotEmpty) {
+                yield content.toString();
+              }
+            } catch (_) {}
+          }
         }
       }
     } catch (e) {
