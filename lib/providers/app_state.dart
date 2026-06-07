@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:xterm/xterm.dart';
 import 'package:uuid/uuid.dart';
@@ -7,7 +8,6 @@ import '../services/ai_service.dart';
 enum AppStateType { idle, initializing, ready, error }
 
 class AppState extends ChangeNotifier {
-  final PRootService _prootService = PRootService();
   final AIService _aiService = AIService();
   final Uuid _uuid = const Uuid();
 
@@ -22,6 +22,9 @@ class AppState extends ChangeNotifier {
   String _selectedModel = 'gpt-3.5-turbo';
   List<Map<String, dynamic>> _chatMessages = [];
   String _sessionId = '';
+  String _prootPath = '';
+  String _rootfsPath = '';
+  StreamSubscription? _outputSubscription;
 
   AppStateType get state => _state;
   String get currentPath => _currentPath;
@@ -41,20 +44,33 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _terminal.write('Extracting proot binary...\r\n');
-      await _prootService.extractProot();
-
-      _terminal.write('Extracting rootfs...\r\n');
-      await _prootService.extractRootfs();
-
       _terminal.write('Setting up environment...\r\n');
-      await _prootService.setupEnvironment();
+      notifyListeners();
+
+      final dirs = await ProotService.initEnvironment();
+      _prootPath = dirs['proot']!;
+      _rootfsPath = dirs['rootfs']!;
+
+      _terminal.write('Starting proot session...\r\n');
+      notifyListeners();
+
+      await ProotService.start(_prootPath, _rootfsPath);
+
+      _outputSubscription = ProotService.output.listen(
+        (data) {
+          _terminal.write(data.toString());
+          notifyListeners();
+        },
+        onError: (error) {
+          _terminal.write('\x1B[31mStream error: $error\x1B[0m\r\n');
+          notifyListeners();
+        },
+      );
 
       _state = AppStateType.ready;
       _terminal.write('\x1B[32m✓ Terminal ready!\x1B[0m\r\n');
       _terminal.write('\x1B[36mWelcome to AI Terminal Pro\x1B[0m\r\n');
       _terminal.write('Type commands or enable AI mode.\r\n\r\n');
-      _terminal.write('\x1B[33m\$ \x1B[0m');
     } catch (e) {
       _state = AppStateType.error;
       _terminal.write('\x1B[31m✗ Error: $e\x1B[0m\r\n');
@@ -85,11 +101,8 @@ class AppState extends ChangeNotifier {
     _isProcessing = true;
     notifyListeners();
 
-    _terminal.write('$command\r\n');
-
     if (command == 'clear') {
       _terminal.clear();
-      _terminal.write('\x1B[33m\$ \x1B[0m');
       _isProcessing = false;
       notifyListeners();
       return;
@@ -102,7 +115,7 @@ class AppState extends ChangeNotifier {
       _terminal.write('  ls, cd, cat   - Standard Linux commands\r\n');
       _terminal.write('  ai <prompt>   - Ask AI assistant\r\n');
       _terminal.write('  status        - Show system status\r\n');
-      _terminal.write('\x1B[33m\$ \x1B[0m');
+      _terminal.write('\r\n');
       _isProcessing = false;
       notifyListeners();
       return;
@@ -110,11 +123,11 @@ class AppState extends ChangeNotifier {
 
     if (command == 'status') {
       _terminal.write('\x1B[36mSystem Status:\x1B[0m\r\n');
-      _terminal.write('  Proot: ${_prootService.prootPath.isNotEmpty ? "Ready" : "Not Ready"}\r\n');
-      _terminal.write('  Rootfs: ${_prootService.rootfsPath.isNotEmpty ? "Ready" : "Not Ready"}\r\n');
+      _terminal.write('  Proot: ${_prootPath.isNotEmpty ? "Ready" : "Not Ready"}\r\n');
+      _terminal.write('  Rootfs: ${_rootfsPath.isNotEmpty ? "Ready" : "Not Ready"}\r\n');
       _terminal.write('  AI Mode: ${_useAI ? "ON" : "OFF"}\r\n');
       _terminal.write('  Session: $_sessionId\r\n');
-      _terminal.write('\x1B[33m\$ \x1B[0m');
+      _terminal.write('\r\n');
       _isProcessing = false;
       notifyListeners();
       return;
@@ -127,15 +140,10 @@ class AppState extends ChangeNotifier {
     }
 
     try {
-      final output = await _prootService.executeCommand(command);
-      if (output.isNotEmpty) {
-        _terminal.write('$output\r\n');
-      }
+      await ProotService.write(command);
       _updatePath(command);
-      _terminal.write('\x1B[33m\$ \x1B[0m');
     } catch (e) {
       _terminal.write('\x1B[31mError: $e\x1B[0m\r\n');
-      _terminal.write('\x1B[33m\$ \x1B[0m');
     }
 
     _isProcessing = false;
@@ -149,7 +157,6 @@ class AppState extends ChangeNotifier {
     try {
       final response = await _aiService.getCommandSuggestion(prompt);
       _terminal.write('\x1B[35mAI: $response\x1B[0m\r\n\r\n');
-      _terminal.write('\x1B[33m\$ \x1B[0m');
 
       _chatMessages.add({
         'id': _uuid.v4(),
@@ -165,9 +172,9 @@ class AppState extends ChangeNotifier {
       });
     } catch (e) {
       _terminal.write('\x1B[31mAI Error: $e\x1B[0m\r\n');
-      _terminal.write('\x1B[33m\$ \x1B[0m');
     }
 
+    _isProcessing = false;
     notifyListeners();
   }
 
@@ -191,7 +198,6 @@ class AppState extends ChangeNotifier {
 
   void clearTerminal() {
     _terminal.clear();
-    _terminal.write('\x1B[33m\$ \x1B[0m');
     notifyListeners();
   }
 
@@ -201,6 +207,7 @@ class AppState extends ChangeNotifier {
   }
 
   void resetTerminal() {
+    _outputSubscription?.cancel();
     _state = AppStateType.idle;
     _currentPath = '~';
     _isProcessing = false;
@@ -209,5 +216,12 @@ class AppState extends ChangeNotifier {
     _terminal.clear();
     notifyListeners();
     initialize();
+  }
+
+  @override
+  void dispose() {
+    _outputSubscription?.cancel();
+    ProotService.write('exit');
+    super.dispose();
   }
 }
