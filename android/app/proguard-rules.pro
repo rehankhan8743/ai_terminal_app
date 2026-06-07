@@ -1,0 +1,2 @@
+-keep class com.ai_terminal_pro.app.** { *; }
+-dontwarn **

@@ -58,22 +58,49 @@ class MainActivity: FlutterActivity() {
     }
 
     private fun startProotSession(rootfsPath: String, prootPath: String) {
-        val cmd = listOf(prootPath, "-r", rootfsPath, "-b", "/dev", "-b", "/proc", "-b", "/sys", "-0", "/bin/sh")
-
-        val pb = ProcessBuilder(cmd).redirectErrorStream(true)
-        pb.environment().apply {
-            put("TERM", "xterm-256color")
-            put("HOME", "/root")
-            put("PROOT_NO_SECCOMP", "1")
-        }
-
         try {
+            val prootDir = File(filesDir, "proot_bins")
+            prootDir.mkdirs()
+
+            val prootBin = File(prootDir, "proot")
+            val srcProot = File(prootPath)
+            if (!prootBin.exists() || prootBin.length() != srcProot.length()) {
+                srcProot.copyTo(prootBin, overwrite = true)
+            }
+            prootBin.setExecutable(true)
+
+            val nativeLibDir = applicationInfo.nativeLibraryDir
+            val libtallocSrc = File(nativeLibDir, "libtalloc.so.2")
+            val libtallocDst = File(prootDir, "libtalloc.so.2")
+            if (libtallocSrc.exists() && (!libtallocDst.exists() || libtallocDst.length() != libtallocSrc.length())) {
+                libtallocSrc.copyTo(libtallocDst, overwrite = true)
+            }
+
+            val cmd = listOf(
+                prootBin.absolutePath,
+                "-r", rootfsPath,
+                "-b", "/dev",
+                "-b", "/proc",
+                "-b", "/sys",
+                "-w", "/root",
+                "-0",
+                "/bin/sh"
+            )
+
+            val pb = ProcessBuilder(cmd).redirectErrorStream(true)
+            pb.environment().apply {
+                put("TERM", "xterm-256color")
+                put("HOME", "/root")
+                put("PROOT_NO_SECCOMP", "1")
+                put("LD_LIBRARY_PATH", "$prootDir:/system/lib64")
+            }
+
             prootProcess = pb.start()
             outputStream = prootProcess?.outputStream
 
             Thread {
                 val reader = BufferedReader(InputStreamReader(prootProcess?.inputStream))
-                val buffer = CharArray(2048)
+                val buffer = CharArray(4096)
                 var bytesRead: Int
                 while (reader.read(buffer).also { bytesRead = it } != -1) {
                     val output = String(buffer, 0, bytesRead)
