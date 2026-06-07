@@ -7,7 +7,7 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(
     ChangeNotifierProvider(
-      create: (_) => AppState()..initialize(),
+      create: (_) => AppState()..init(),
       child: const AITerminalProApp(),
     ),
   );
@@ -30,11 +30,6 @@ class AITerminalProApp extends StatelessWidget {
           primary: Color(0xFF58A6FF),
           secondary: Color(0xFF3FB950),
           surface: Color(0xFF161B22),
-        ),
-        textTheme: const TextTheme(
-          bodyLarge: TextStyle(fontFamily: 'monospace', color: Color(0xFFE6EDF3)),
-          bodyMedium: TextStyle(fontFamily: 'monospace', color: Color(0xFFE6EDF3)),
-          bodySmall: TextStyle(fontFamily: 'monospace', color: Color(0xFF8B949E)),
         ),
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFF161B22),

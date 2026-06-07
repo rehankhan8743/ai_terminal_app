@@ -22,18 +22,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadApiKey() async {
-    final key = await _storage.read(key: 'openai_api_key') ?? '';
+    final key = await _storage.read(key: 'api_key') ?? '';
     _apiKeyController.text = key;
     if (key.isNotEmpty && mounted) {
-      context.read<AppState>().setApiKey(key);
+      context.read<AppState>().saveApiKey(key);
     }
     setState(() => _isLoading = false);
   }
 
   Future<void> _saveApiKey(String key) async {
-    await _storage.write(key: 'openai_api_key', value: key);
+    await _storage.write(key: 'api_key', value: key);
     if (mounted) {
-      context.read<AppState>().setApiKey(key);
+      context.read<AppState>().saveApiKey(key);
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('API Key saved', style: TextStyle(fontFamily: 'monospace')),
+          backgroundColor: Color(0xFF3FB950),
+        ),
+      );
     }
   }
 
@@ -63,28 +71,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSection(
                 'Terminal',
                 [
-                  _buildInfoTile('Status', state.state.name),
-                  _buildInfoTile('Current Path', state.currentPath),
-                  _buildInfoTile('Session', state.sessionId.substring(0, 8)),
+                  _buildInfoTile('Status', state.isReady ? 'Ready' : 'Initializing'),
+                  _buildInfoTile('Buffer', '${state.terminalBuffer.length} chars'),
                 ],
               ),
               const SizedBox(height: 16),
               _buildSection(
                 'AI Configuration',
                 [
-                  SwitchListTile(
-                    title: const Text(
-                      'AI Mode',
-                      style: TextStyle(fontFamily: 'monospace'),
-                    ),
-                    subtitle: const Text(
-                      'Get smart command suggestions',
-                      style: TextStyle(fontFamily: 'monospace', fontSize: 12),
-                    ),
-                    value: state.useAI,
-                    onChanged: (_) => state.toggleAI(),
-                    activeColor: const Color(0xFF3FB950),
-                  ),
                   Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -139,29 +133,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                   ),
-                  ListTile(
-                    title: const Text(
-                      'Model',
-                      style: TextStyle(fontFamily: 'monospace'),
-                    ),
-                    trailing: DropdownButton<String>(
-                      value: state.selectedModel,
-                      dropdownColor: const Color(0xFF161B22),
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        color: Color(0xFF3FB950),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'gpt-4o', child: Text('GPT-4o')),
-                        DropdownMenuItem(value: 'gpt-4o-mini', child: Text('GPT-4o Mini')),
-                        DropdownMenuItem(value: 'gpt-4', child: Text('GPT-4')),
-                        DropdownMenuItem(value: 'gpt-4-turbo', child: Text('GPT-4 Turbo')),
-                      ],
-                      onChanged: (value) {
-                        if (value != null) state.setModel(value);
-                      },
-                    ),
-                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -171,11 +142,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ListTile(
                     leading: const Icon(Icons.refresh, color: Colors.orange),
                     title: const Text(
-                      'Reset Terminal',
+                      'Restart Terminal',
                       style: TextStyle(fontFamily: 'monospace'),
                     ),
                     subtitle: const Text(
-                      'Clear all data and restart',
+                      'Re-initialize proot session',
                       style: TextStyle(fontFamily: 'monospace', fontSize: 12),
                     ),
                     onTap: () {
@@ -184,11 +155,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         builder: (ctx) => AlertDialog(
                           backgroundColor: const Color(0xFF161B22),
                           title: const Text(
-                            'Reset Terminal?',
+                            'Restart Terminal?',
                             style: TextStyle(fontFamily: 'monospace'),
                           ),
                           content: const Text(
-                            'This will clear all terminal data.',
+                            'This will restart the proot session.',
                             style: TextStyle(fontFamily: 'monospace'),
                           ),
                           actions: [
@@ -198,12 +169,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                             TextButton(
                               onPressed: () {
-                                state.resetTerminal();
                                 Navigator.pop(ctx);
+                                state.init();
                               },
                               child: const Text(
-                                'Reset',
-                                style: TextStyle(color: Colors.red),
+                                'Restart',
+                                style: TextStyle(color: Colors.orange),
                               ),
                             ),
                           ],
