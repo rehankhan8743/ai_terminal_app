@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:archive/archive.dart';
 
 class PRootService {
   static const MethodChannel _channel = MethodChannel('com.ai_terminal/proot');
@@ -26,21 +28,36 @@ class PRootService {
   Future<void> extractRootfs() async {
     try {
       final appDir = await getApplicationDocumentsDirectory();
-      final rootfsTar = File('${appDir.parent.path}/app_flutter/assets/rootfs.tar.gz');
+      final rootfsDir = Directory('${appDir.path}/rootfs');
 
+      if (rootfsDir.existsSync() && rootfsDir.listSync().isNotEmpty) {
+        _rootfsPath = rootfsDir.path;
+        return;
+      }
+
+      final rootfsTar = File('${appDir.parent.path}/app_flutter/assets/rootfs.tar.gz');
       if (!rootfsTar.existsSync()) {
         throw Exception('rootfs.tar.gz not found in assets');
       }
 
-      final bool success = await _channel.invokeMethod('extractRootfs', {
-        'path': rootfsTar.path,
-      });
+      rootfsDir.createSync(recursive: true);
 
-      if (!success) {
-        throw Exception('Failed to extract rootfs');
+      final bytes = await rootfsTar.readAsBytes();
+      final archive = GZipDecoder().decodeBytes(bytes);
+      final tarArchive = TarDecoder().decodeBytes(archive);
+
+      for (final file in tarArchive) {
+        final filePath = '${rootfsDir.path}/${file.name}';
+        if (file.isFile) {
+          final outFile = File(filePath);
+          await outFile.create(recursive: true);
+          await outFile.writeAsBytes(file.content as List<int>);
+        } else {
+          await Directory(filePath).create(recursive: true);
+        }
       }
 
-      _rootfsPath = '${appDir.path}/rootfs';
+      _rootfsPath = rootfsDir.path;
     } catch (e) {
       throw Exception('Rootfs extraction failed: $e');
     }
@@ -48,8 +65,7 @@ class PRootService {
 
   Future<void> setupEnvironment() async {
     try {
-      final appDir = await getApplicationDocumentsDirectory();
-      final rootfsDir = Directory('${appDir.path}/rootfs');
+      final rootfsDir = Directory(_rootfsPath);
 
       if (!rootfsDir.existsSync()) {
         throw Exception('Rootfs directory not found');
@@ -80,10 +96,7 @@ export TERM=xterm-256color
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
 
-# Create necessary directories
 mkdir -p /tmp /var/run /proc /sys /dev
-
-# Mount procfs
 mount -t proc proc /proc 2>/dev/null || true
 
 exec /bin/sh
@@ -116,7 +129,7 @@ exec /bin/sh
       );
 
       if (result.exitCode != 0 && result.stderr.isNotEmpty) {
-        return result.stdout.toString() + '\n' + result.stderr.toString();
+        return '${result.stdout}\n${result.stderr}';
       }
 
       return result.stdout.toString();
@@ -127,8 +140,7 @@ exec /bin/sh
 
   Future<String> getInstalledPackages() async {
     try {
-      final result = await executeCommand('apk list --installed 2>/dev/null || dpkg -l 2>/dev/null || echo "Package manager not available"');
-      return result;
+      return await executeCommand('apk list --installed 2>/dev/null || dpkg -l 2>/dev/null || echo "Package manager not available"');
     } catch (e) {
       return 'Unable to list packages';
     }

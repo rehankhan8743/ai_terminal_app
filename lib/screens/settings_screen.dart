@@ -1,9 +1,47 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  final TextEditingController _apiKeyController = TextEditingController();
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadApiKey();
+  }
+
+  Future<void> _loadApiKey() async {
+    final key = await _storage.read(key: 'openai_api_key') ?? '';
+    _apiKeyController.text = key;
+    if (key.isNotEmpty && mounted) {
+      context.read<AppState>().setApiKey(key);
+    }
+    setState(() => _isLoading = false);
+  }
+
+  Future<void> _saveApiKey(String key) async {
+    await _storage.write(key: 'openai_api_key', value: key);
+    if (mounted) {
+      context.read<AppState>().setApiKey(key);
+    }
+  }
+
+  @override
+  void dispose() {
+    _apiKeyController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -13,7 +51,7 @@ class SettingsScreen extends StatelessWidget {
           'Settings',
           style: TextStyle(
             fontFamily: 'monospace',
-            color: Colors.green,
+            color: Color(0xFF3FB950),
           ),
         ),
       ),
@@ -27,18 +65,101 @@ class SettingsScreen extends StatelessWidget {
                 [
                   _buildInfoTile('Status', state.state.name),
                   _buildInfoTile('Current Path', state.currentPath),
-                  _buildInfoTile('History', '${state.history.length} commands'),
+                  _buildInfoTile('Session', state.sessionId.substring(0, 8)),
                 ],
               ),
               const SizedBox(height: 16),
               _buildSection(
-                'AI Settings',
+                'AI Configuration',
                 [
-                  _buildSwitchTile(
-                    'AI Mode',
-                    'Get smart command suggestions',
-                    state.useAI,
-                    (_) => state.toggleAI(),
+                  SwitchListTile(
+                    title: const Text(
+                      'AI Mode',
+                      style: TextStyle(fontFamily: 'monospace'),
+                    ),
+                    subtitle: const Text(
+                      'Get smart command suggestions',
+                      style: TextStyle(fontFamily: 'monospace', fontSize: 12),
+                    ),
+                    value: state.useAI,
+                    onChanged: (_) => state.toggleAI(),
+                    activeColor: const Color(0xFF3FB950),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'OPENAI API KEY',
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                            color: Colors.grey,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _apiKeyController,
+                          obscureText: true,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 13,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: 'sk-...',
+                            hintStyle: TextStyle(
+                              fontFamily: 'monospace',
+                              color: Colors.grey[600],
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            filled: true,
+                            fillColor: const Color(0xFF0D1117),
+                          ),
+                          onSubmitted: (value) => _saveApiKey(value),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: () => _saveApiKey(_apiKeyController.text),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF3FB950),
+                              foregroundColor: Colors.black,
+                            ),
+                            child: const Text(
+                              'Save API Key',
+                              style: TextStyle(fontFamily: 'monospace'),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ListTile(
+                    title: const Text(
+                      'Model',
+                      style: TextStyle(fontFamily: 'monospace'),
+                    ),
+                    trailing: DropdownButton<String>(
+                      value: state.selectedModel,
+                      dropdownColor: const Color(0xFF161B22),
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        color: Color(0xFF3FB950),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'gpt-3.5-turbo', child: Text('GPT-3.5')),
+                        DropdownMenuItem(value: 'gpt-4', child: Text('GPT-4')),
+                        DropdownMenuItem(value: 'gpt-4-turbo', child: Text('GPT-4 Turbo')),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) state.setModel(value);
+                      },
+                    ),
                   ),
                 ],
               ),
@@ -78,7 +199,6 @@ class SettingsScreen extends StatelessWidget {
                               onPressed: () {
                                 state.resetTerminal();
                                 Navigator.pop(ctx);
-                                state.initializeTerminal();
                               },
                               child: const Text(
                                 'Reset',
@@ -149,25 +269,9 @@ class SettingsScreen extends StatelessWidget {
         style: const TextStyle(
           fontFamily: 'monospace',
           fontSize: 14,
-          color: Colors.green,
+          color: Color(0xFF3FB950),
         ),
       ),
-    );
-  }
-
-  Widget _buildSwitchTile(String title, String subtitle, bool value, ValueChanged<bool> onChanged) {
-    return SwitchListTile(
-      title: Text(
-        title,
-        style: const TextStyle(fontFamily: 'monospace'),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-      ),
-      value: value,
-      onChanged: onChanged,
-      activeColor: Colors.green,
     );
   }
 }

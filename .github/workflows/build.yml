@@ -1,14 +1,14 @@
-name: AI Terminal CI
+name: AI Terminal Pro CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
     branches: [ main ]
 
 jobs:
-  build-android:
-    name: Build Android APK
+  build-android-debug:
+    name: Build Android Debug APK
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,28 +18,30 @@ jobs:
         with:
           flutter-version: '3.24.0'
           channel: 'stable'
+          cache: true
 
-      - name: Flutter version
-        run: flutter --version
-
-      - name: Install dependencies
+      - name: Flutter pub get
         run: flutter pub get
 
-      - name: Analyze code
+      - name: Flutter analyze
         run: flutter analyze --no-fatal-infos
 
-      - name: Build APK
+      - name: Run tests
+        run: flutter test
+
+      - name: Build Debug APK
         run: flutter build apk --debug
 
-      - name: Upload APK
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: ai-terminal-apk
+          name: ai-terminal-pro-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
 
   build-android-release:
     name: Build Android Release APK
     runs-on: ubuntu-latest
+    needs: build-android-debug
     steps:
       - uses: actions/checkout@v4
 
@@ -48,15 +50,70 @@ jobs:
         with:
           flutter-version: '3.24.0'
           channel: 'stable'
+          cache: true
 
-      - name: Install dependencies
+      - name: Flutter pub get
         run: flutter pub get
 
       - name: Build Release APK
         run: flutter build apk --release
 
+      - name: Build App Bundle
+        run: flutter build appbundle --release
+
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: ai-terminal-release-apk
+          name: ai-terminal-pro-release
           path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload App Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-terminal-pro-aab
+          path: build/app/outputs/bundle/release/app-release.aab
+
+  release:
+    name: Create Release
+    needs: build-android-release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-terminal-pro-release
+
+      - name: Download AAB
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-terminal-pro-aab
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ github.run_number }}
+          name: AI Terminal Pro v${{ github.run_number }}
+          body: |
+            ## AI Terminal Pro v${{ github.run_number }}
+
+            ### Features
+            - Proot Linux terminal
+            - AI-powered command suggestions
+            - Chat interface
+            - Secure API key storage
+
+            ### Files
+            - APK: Android package for direct install
+            - AAB: Android App Bundle for Play Store
+          files: |
+            app-release.apk
+            app-release.aab
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

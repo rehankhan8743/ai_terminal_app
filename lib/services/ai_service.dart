@@ -1,13 +1,14 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 
 class AIService {
   static const String _baseUrl = 'https://api.openai.com/v1/chat/completions';
+  final Dio _dio = Dio();
   String _apiKey = '';
   String _model = 'gpt-3.5-turbo';
 
   void setApiKey(String key) {
     _apiKey = key;
+    _dio.options.headers['Authorization'] = 'Bearer $key';
   }
 
   void setModel(String model) {
@@ -20,13 +21,9 @@ class AIService {
     }
 
     try {
-      final response = await http.post(
-        Uri.parse(_baseUrl),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_apiKey',
-        },
-        body: jsonEncode({
+      final response = await _dio.post(
+        _baseUrl,
+        data: {
           'model': _model,
           'messages': [
             {
@@ -40,17 +37,22 @@ class AIService {
           ],
           'max_tokens': 200,
           'temperature': 0.7,
-        }),
+        },
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final data = response.data;
         return data['choices'][0]['message']['content'];
       } else {
         return 'API Error: ${response.statusCode}';
       }
+    } on DioException catch (e) {
+      if (e.response != null) {
+        return 'API Error: ${e.response?.statusCode}';
+      }
+      return 'Connection error: ${e.message}';
     } catch (e) {
-      return 'Connection error: ${e.toString()}';
+      return 'Error: ${e.toString()}';
     }
   }
 
@@ -70,6 +72,15 @@ class AIService {
       'chmod': 'chmod - Change file permissions\n  Usage: chmod [mode] [file]\n  Example: chmod 755 script.sh',
       'cp': 'cp - Copy files\n  Usage: cp [source] [dest]',
       'mv': 'mv - Move/rename files\n  Usage: mv [source] [dest]',
+      'apt': 'apt - Package manager\n  Usage: apt update && apt install [pkg]',
+      'apk': 'apk - Alpine package manager\n  Usage: apk add [pkg]',
+      'pip': 'pip - Python package manager\n  Usage: pip install [pkg]',
+      'node': 'node - JavaScript runtime\n  Usage: node [script.js]',
+      'python': 'python - Python interpreter\n  Usage: python [script.py]',
+      'git': 'git - Version control\n  Usage: git [command]',
+      'ssh': 'ssh - Secure shell\n  Usage: ssh user@host',
+      'curl': 'curl - HTTP client\n  Usage: curl [url]',
+      'wget': 'wget - Download files\n  Usage: wget [url]',
     };
 
     final cmd = input.trim().split(' ').first.toLowerCase();

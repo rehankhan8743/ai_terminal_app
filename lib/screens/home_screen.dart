@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:xterm/xterm.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import 'settings_screen.dart';
+import 'chat_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -12,7 +14,6 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _controller = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
   bool _initialized = false;
 
@@ -22,7 +23,6 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_initialized) {
         _initialized = true;
-        context.read<AppState>().initializeTerminal();
       }
     });
   }
@@ -30,34 +30,27 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _controller.dispose();
-    _scrollController.dispose();
     _focusNode.dispose();
     super.dispose();
-  }
-
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 100),
-          curve: Curves.easeOut,
-        );
-      }
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'AI Terminal',
-          style: TextStyle(
-            fontFamily: 'monospace',
-            fontWeight: FontWeight.bold,
-            color: Colors.green,
-          ),
+        title: const Row(
+          children: [
+            Icon(Icons.terminal, color: Color(0xFF3FB950), size: 20),
+            SizedBox(width: 8),
+            Text(
+              'AI Terminal Pro',
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.bold,
+                color: Color(0xFFC9D1D9),
+              ),
+            ),
+          ],
         ),
         actions: [
           Consumer<AppState>(
@@ -75,15 +68,24 @@ class _HomeScreenState extends State<HomeScreen> {
                   Switch(
                     value: state.useAI,
                     onChanged: (_) => state.toggleAI(),
-                    activeColor: Colors.green,
-                    activeTrackColor: Colors.green.withOpacity(0.3),
+                    activeColor: const Color(0xFF3FB950),
+                    activeTrackColor: const Color(0xFF3FB950).withOpacity(0.3),
                   ),
                 ],
               );
             },
           ),
           IconButton(
-            icon: const Icon(Icons.settings, color: Colors.grey),
+            icon: const Icon(Icons.chat_bubble_outline, color: Color(0xFF8B949E)),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ChatScreen()),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings, color: Color(0xFF8B949E)),
             onPressed: () {
               Navigator.push(
                 context,
@@ -92,7 +94,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.grey),
+            icon: const Icon(Icons.delete_outline, color: Color(0xFF8B949E)),
             onPressed: () {
               context.read<AppState>().clearTerminal();
             },
@@ -102,29 +104,24 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Column(
         children: [
           Expanded(
-            child: GestureDetector(
-              onTap: () => _focusNode.requestFocus(),
-              child: Container(
-                color: const Color(0xFF0D1117),
-                padding: const EdgeInsets.all(12),
-                child: Consumer<AppState>(
-                  builder: (context, state, _) {
-                    _scrollToBottom();
-                    return SingleChildScrollView(
-                      controller: _scrollController,
-                      child: Text(
-                        state.output,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 13,
-                          color: Color(0xFFE6EDF3),
-                          height: 1.5,
-                        ),
-                      ),
-                    );
+            child: Consumer<AppState>(
+              builder: (context, state, _) {
+                return TerminalView(
+                  terminal: state.terminal,
+                  textStyle: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 14,
+                    color: Color(0xFFE6EDF3),
+                    height: 1.5,
+                  ),
+                  backgroundColor: const Color(0xFF0D1117),
+                  cursorColor: const Color(0xFF3FB950),
+                  selectionColor: const Color(0xFF58A6FF).withOpacity(0.3),
+                  onInput: (input) {
+                    state.executeCommand(input);
                   },
-                ),
-              ),
+                );
+              },
             ),
           ),
           _buildInputBar(),
@@ -146,7 +143,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: const TextStyle(
                   fontFamily: 'monospace',
                   fontSize: 13,
-                  color: Colors.green,
+                  color: Color(0xFF3FB950),
                 ),
               ),
               Expanded(
@@ -159,10 +156,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: Color(0xFFE6EDF3),
                   ),
                   decoration: const InputDecoration(
-                    hintText: 'Enter command...',
+                    hintText: 'Type command or "ai <question>"...',
                     hintStyle: TextStyle(
                       fontFamily: 'monospace',
-                      color: Colors.grey,
+                      color: Color(0xFF484F58),
                     ),
                     border: InputBorder.none,
                     isDense: true,
@@ -173,8 +170,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       state.executeCommand(value.trim());
                       _controller.clear();
                     }
+                    _focusNode.requestFocus();
                   },
-                  enabled: state.state == TerminalState.ready && !state.isProcessing,
+                  enabled: state.state == AppStateType.ready && !state.isProcessing,
                 ),
               ),
               if (state.isProcessing)
@@ -183,8 +181,23 @@ class _HomeScreenState extends State<HomeScreen> {
                   height: 20,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: Colors.green,
+                    color: Color(0xFF58A6FF),
                   ),
+                )
+              else
+                IconButton(
+                  icon: const Icon(
+                    Icons.send,
+                    color: Color(0xFF58A6FF),
+                    size: 20,
+                  ),
+                  onPressed: () {
+                    if (_controller.text.trim().isNotEmpty) {
+                      state.executeCommand(_controller.text.trim());
+                      _controller.clear();
+                    }
+                    _focusNode.requestFocus();
+                  },
                 ),
             ],
           ),

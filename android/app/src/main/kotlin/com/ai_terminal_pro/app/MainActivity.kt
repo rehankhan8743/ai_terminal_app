@@ -1,4 +1,4 @@
-package com.example.ai_terminal_pro
+package com.ai_terminal_pro.app
 
 import android.content.Context
 import android.os.Bundle
@@ -6,10 +6,9 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
-import java.io.FileOutputStream
 
 class MainActivity : FlutterActivity() {
-    private val CHANNEL = "com.ai_terminal/proot"
+    private val CHANNEL = "com.ai_terminal_pro/proot"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -30,6 +29,9 @@ class MainActivity : FlutterActivity() {
                 }
                 "getNativeLibDir" -> {
                     result.success(applicationInfo.nativeLibraryDir)
+                }
+                "getFilesDir" -> {
+                    result.success(filesDir.absolutePath)
                 }
                 else -> result.notImplemented()
             }
@@ -59,7 +61,9 @@ class MainActivity : FlutterActivity() {
     private fun extractRootfs(rootfsPath: String): Boolean {
         return try {
             val rootfsDir = File(filesDir, "rootfs")
-            if (rootfsDir.exists()) return true
+            if (rootfsDir.exists() && rootfsDir.listFiles()?.isNotEmpty() == true) {
+                return true
+            }
 
             val rootfsFile = File(rootfsPath)
             if (!rootfsFile.exists()) return false
