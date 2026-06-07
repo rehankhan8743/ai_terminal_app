@@ -5,38 +5,25 @@ import 'screens/home_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(
-    ChangeNotifierProvider(
-      create: (_) => AppState()..init(),
-      child: const AITerminalProApp(),
-    ),
-  );
+  runApp(const MyApp());
 }
 
-class AITerminalProApp extends StatelessWidget {
-  const AITerminalProApp({super.key});
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'AI Terminal Pro',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        primarySwatch: Colors.green,
-        scaffoldBackgroundColor: const Color(0xFF0D1117),
-        cardColor: const Color(0xFF161B22),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF58A6FF),
-          secondary: Color(0xFF3FB950),
-          surface: Color(0xFF161B22),
+    return ChangeNotifierProvider(
+      create: (context) => AppState()..init(),
+      child: MaterialApp(
+        title: 'AI Terminal Pro',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData.dark().copyWith(
+          primaryColor: Colors.blueAccent,
+          scaffoldBackgroundColor: Colors.black,
         ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF161B22),
-          elevation: 0,
-        ),
+        home: HomeScreen(),
       ),
-      home: const HomeScreen(),
     );
   }
 }
