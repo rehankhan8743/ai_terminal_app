@@ -41,7 +41,3 @@ pubspec.lock
 **/android/app/release
 app.*.symbols
 app.*.map.json
-
-# Large files (user must provide)
-assets/rootfs.tar.gz
-android/app/src/main/jniLibs/arm64-v8a/libproot.so
