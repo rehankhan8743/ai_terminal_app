@@ -1,6 +1,7 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/services.dart';
-import 'package:archive/archive_io.dart';
+import 'package:archive/archive.dart';
 
 class ProotService {
   static const MethodChannel _channel = MethodChannel('com.ai_terminal_pro/proot');
@@ -29,8 +30,17 @@ class ProotService {
         if (result.exitCode != 0) throw Exception('Native tar failed');
       } catch (e) {
         final bytes = await file.readAsBytes();
-        final archive = TarDecoder().decodeBuffer(GZipDecoder().decodeBuffer(bytes));
-        extractArchiveToDisk(archive, rootfsPath);
+        final archive = TarDecoder().decodeBytes(GZipDecoder().decodeBytes(bytes));
+        for (final file in archive) {
+          final filePath = '$rootfsPath/${file.name}';
+          if (file.isFile) {
+            final outFile = File(filePath);
+            await outFile.create(recursive: true);
+            await outFile.writeAsBytes(file.content as List<int>);
+          } else {
+            await Directory(filePath).create(recursive: true);
+          }
+        }
       }
 
       file.deleteSync();
