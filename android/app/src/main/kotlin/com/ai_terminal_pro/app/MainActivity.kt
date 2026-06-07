@@ -1,86 +1,87 @@
 package com.ai_terminal_pro.app
 
-import android.content.Context
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
-import java.io.File
+import java.io.*
 
-class MainActivity : FlutterActivity() {
+class MainActivity: FlutterActivity() {
+
     private val CHANNEL = "com.ai_terminal_pro/proot"
+    private val STREAM = "com.ai_terminal_pro/stream"
+    private var prootProcess: Process? = null
+    private var eventSink: EventChannel.EventSink? = null
+    private var outputStream: OutputStream? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, STREAM).setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) { eventSink = events }
+                override fun onCancel(arguments: Any?) { eventSink = null }
+            }
+        )
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
-                "extractProot" -> {
-                    val success = extractProotBinary()
-                    result.success(success)
+                "getDirs" -> {
+                    result.success(mapOf(
+                        "nativeLibDir" to applicationInfo.nativeLibraryDir,
+                        "filesDir" to filesDir.absolutePath
+                    ))
                 }
-                "extractRootfs" -> {
-                    val rootfsPath = call.argument<String>("path") ?: ""
-                    val success = extractRootfs(rootfsPath)
-                    result.success(success)
+                "start" -> {
+                    val rootfsPath = call.argument<String>("rootfsPath")
+                    val prootPath = call.argument<String>("prootPath")
+                    startProotSession(rootfsPath!!, prootPath!!)
+                    result.success(null)
                 }
-                "getProotPath" -> {
-                    result.success(getProotBinaryPath())
+                "write" -> {
+                    val cmd = call.argument<String>("cmd")
+                    outputStream?.write("$cmd".toByteArray())
+                    outputStream?.flush()
+                    result.success(null)
                 }
-                "getNativeLibDir" -> {
-                    result.success(applicationInfo.nativeLibraryDir)
-                }
-                "getFilesDir" -> {
-                    result.success(filesDir.absolutePath)
+                "stop" -> {
+                    prootProcess?.destroy()
+                    result.success(null)
                 }
                 else -> result.notImplemented()
             }
         }
     }
 
-    private fun extractProotBinary(): Boolean {
-        return try {
-            val prootFile = File(filesDir, "proot")
-            if (prootFile.exists()) return true
+    private fun startProotSession(rootfsPath: String, prootPath: String) {
+        val cmd = listOf(prootPath, "-r", rootfsPath, "-b", "/dev", "-b", "/proc", "-b", "/sys", "-0", "/bin/sh")
 
-            val nativeLibDir = applicationInfo.nativeLibraryDir
-            val prootLib = File(nativeLibDir, "libproot.so")
-
-            if (prootLib.exists()) {
-                prootLib.copyTo(prootFile, overwrite = true)
-                prootFile.setExecutable(true, false)
-                true
-            } else {
-                false
-            }
-        } catch (e: Exception) {
-            false
+        val pb = ProcessBuilder(cmd).redirectErrorStream(true)
+        pb.environment().apply {
+            put("TERM", "xterm-256color")
+            put("HOME", "/root")
+            put("PROOT_NO_SECCOMP", "1")
         }
-    }
 
-    private fun extractRootfs(rootfsPath: String): Boolean {
-        return try {
-            val rootfsDir = File(filesDir, "rootfs")
-            if (rootfsDir.exists() && rootfsDir.listFiles()?.isNotEmpty() == true) {
-                return true
-            }
+        try {
+            prootProcess = pb.start()
+            outputStream = prootProcess?.outputStream
 
-            val rootfsFile = File(rootfsPath)
-            if (!rootfsFile.exists()) return false
-
-            rootfsDir.mkdirs()
-
-            val process = Runtime.getRuntime().exec(
-                arrayOf("tar", "-xzf", rootfsFile.absolutePath, "-C", rootfsDir.absolutePath)
-            )
-            process.waitFor()
-            process.exitValue() == 0
+            Thread {
+                val reader = BufferedReader(InputStreamReader(prootProcess?.inputStream))
+                val buffer = CharArray(2048)
+                var bytesRead: Int
+                while (reader.read(buffer).also { bytesRead = it } != -1) {
+                    val output = String(buffer, 0, bytesRead)
+                    mainHandler.post { eventSink?.success(output) }
+                }
+            }.start()
         } catch (e: Exception) {
-            false
+            mainHandler.post { eventSink?.error("PROOT_ERROR", e.message, null) }
         }
-    }
-
-    private fun getProotBinaryPath(): String {
-        return File(filesDir, "proot").absolutePath
     }
 }
