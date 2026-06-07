@@ -8,7 +8,7 @@ import '../services/ai_service.dart';
 enum AppStateType { idle, initializing, ready, error }
 
 class AppState extends ChangeNotifier {
-  final AIService _aiService = AIService();
+  AIService? _aiService;
   final Uuid _uuid = const Uuid();
 
   late Terminal _terminal;
@@ -19,12 +19,14 @@ class AppState extends ChangeNotifier {
   bool _isProcessing = false;
   bool _useAI = false;
   String _apiKey = '';
-  String _selectedModel = 'gpt-3.5-turbo';
+  String _selectedModel = 'gpt-4o';
   List<Map<String, dynamic>> _chatMessages = [];
   String _sessionId = '';
   String _prootPath = '';
   String _rootfsPath = '';
   StreamSubscription? _outputSubscription;
+  StreamSubscription? _aiSubscription;
+  String _terminalContext = '';
 
   AppStateType get state => _state;
   String get currentPath => _currentPath;
@@ -58,7 +60,12 @@ class AppState extends ChangeNotifier {
 
       _outputSubscription = ProotService.output.listen(
         (data) {
-          _terminal.write(data.toString());
+          final output = data.toString();
+          _terminal.write(output);
+          _terminalContext += output;
+          if (_terminalContext.length > 2000) {
+            _terminalContext = _terminalContext.substring(_terminalContext.length - 2000);
+          }
           notifyListeners();
         },
         onError: (error) {
@@ -85,13 +92,12 @@ class AppState extends ChangeNotifier {
 
   void setApiKey(String key) {
     _apiKey = key;
-    _aiService.setApiKey(key);
+    _aiService = AIService(apiKey: key);
     notifyListeners();
   }
 
   void setModel(String model) {
     _selectedModel = model;
-    _aiService.setModel(model);
     notifyListeners();
   }
 
@@ -103,6 +109,7 @@ class AppState extends ChangeNotifier {
 
     if (command == 'clear') {
       _terminal.clear();
+      _terminalContext = '';
       _isProcessing = false;
       notifyListeners();
       return;
@@ -151,31 +158,63 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _askAi(String prompt) async {
+    if (_aiService == null) {
+      _terminal.write('\x1B[31mAPI key not set. Go to Settings.\x1B[0m\r\n');
+      _isProcessing = false;
+      notifyListeners();
+      return;
+    }
+
     _terminal.write('\x1B[35mAI thinking...\x1B[0m\r\n');
     notifyListeners();
 
     try {
-      final response = await _aiService.getCommandSuggestion(prompt);
-      _terminal.write('\x1B[35mAI: $response\x1B[0m\r\n\r\n');
+      String fullResponse = '';
+      _aiSubscription?.cancel();
 
-      _chatMessages.add({
-        'id': _uuid.v4(),
-        'role': 'user',
-        'content': prompt,
-        'timestamp': DateTime.now().toIso8601String(),
-      });
-      _chatMessages.add({
-        'id': _uuid.v4(),
-        'role': 'assistant',
-        'content': response,
-        'timestamp': DateTime.now().toIso8601String(),
-      });
+      _aiSubscription = _aiService!.streamChat(prompt, _terminalContext).listen(
+        (chunk) {
+          fullResponse += chunk;
+          _terminal.write('\x1B[35m$chunk\x1B[0m');
+          notifyListeners();
+        },
+        onDone: () {
+          _terminal.write('\r\n\r\n');
+
+          final cmdMatch = RegExp(r'<cmd>(.*?)<\/cmd>', dotAll: true).firstMatch(fullResponse);
+          if (cmdMatch != null) {
+            final cmd = cmdMatch.group(1)!.trim();
+            _terminal.write('\x1B[36mExecuting: $cmd\x1B[0m\r\n');
+            ProotService.write(cmd);
+          }
+
+          _chatMessages.add({
+            'id': _uuid.v4(),
+            'role': 'user',
+            'content': prompt,
+            'timestamp': DateTime.now().toIso8601String(),
+          });
+          _chatMessages.add({
+            'id': _uuid.v4(),
+            'role': 'assistant',
+            'content': fullResponse,
+            'timestamp': DateTime.now().toIso8601String(),
+          });
+
+          _isProcessing = false;
+          notifyListeners();
+        },
+        onError: (e) {
+          _terminal.write('\x1B[31mAI Error: $e\x1B[0m\r\n');
+          _isProcessing = false;
+          notifyListeners();
+        },
+      );
     } catch (e) {
       _terminal.write('\x1B[31mAI Error: $e\x1B[0m\r\n');
+      _isProcessing = false;
+      notifyListeners();
     }
-
-    _isProcessing = false;
-    notifyListeners();
   }
 
   void _updatePath(String command) {
@@ -198,6 +237,7 @@ class AppState extends ChangeNotifier {
 
   void clearTerminal() {
     _terminal.clear();
+    _terminalContext = '';
     notifyListeners();
   }
 
@@ -208,12 +248,14 @@ class AppState extends ChangeNotifier {
 
   void resetTerminal() {
     _outputSubscription?.cancel();
+    _aiSubscription?.cancel();
     _state = AppStateType.idle;
     _currentPath = '~';
     _isProcessing = false;
     _chatMessages.clear();
     _sessionId = _uuid.v4();
     _terminal.clear();
+    _terminalContext = '';
     notifyListeners();
     initialize();
   }
@@ -221,6 +263,7 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _outputSubscription?.cancel();
+    _aiSubscription?.cancel();
     ProotService.write('exit');
     super.dispose();
   }
